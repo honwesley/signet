@@ -46,11 +46,26 @@ if len(sys.argv) != 2:
 
 label = sys.argv[1].upper()
 
-if label not in {"A", "B", "L"}:
-    raise SystemExit("For now, choose A, B, or L.")
+STATIC_LETTERS = set("ABCDEFGHIKLMNOPQRSTUVWXY")
+if label not in STATIC_LETTERS:
+    raise SystemExit("Choose a static ASL letter. Cannot be J and Z because they require motion.")
 
 DATA_FILE.parent.mkdir(exist_ok=True)
 file_exists = DATA_FILE.exists()
+existing_samples = 0 
+
+if file_exists:
+    with DATA_FILE.open("r", newline="") as existing_file:
+        reader = csv.DictReader(existing_file)
+        
+        existing_samples = sum(
+            row["label"] == label 
+            for row in reader
+        )
+if existing_samples >= TARGET_SAMPLES:
+    raise SystemExit(
+        f"{label} already has {existing_samples} samples."
+    )
 
 options = mp.tasks.vision.HandLandmarkerOptions(
     base_options=mp.tasks.BaseOptions(model_asset_path=str(MODEL_PATH)),
@@ -66,7 +81,7 @@ camera = cv2.VideoCapture(0)
 if not camera.isOpened():
     raise RuntimeError("Could not open the webcam.")
 
-sample_count = 0
+sample_count = existing_samples
 recording = False
 frame_timestamp_ms = 0
 

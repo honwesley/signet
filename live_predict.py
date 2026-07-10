@@ -39,7 +39,6 @@ def normalize_landmarks(landmarks):
 
     return features
 
-
 model = joblib.load(CLASSIFIER_PATH)
 
 options = mp.tasks.vision.HandLandmarkerOptions(
