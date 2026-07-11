@@ -5,10 +5,13 @@ import joblib
 import mediapipe as mp
 import pandas as pd
 
+from collections import Counter, deque 
 
 HAND_MODEL_PATH = Path("models/hand_landmarker.task")
 CLASSIFIER_PATH = Path("models/asl_classifier.joblib")
 CONFIDENCE_THRESHOLD = 0.75
+HISTORY_SIZE = 12
+MIN_VOTES = 8
 
 
 def normalize_landmarks(landmarks):
@@ -58,6 +61,7 @@ if not camera.isOpened():
     raise RuntimeError("Could not open the webcam.")
 
 frame_timestamp_ms = 0
+prediction_history = deque(maxlen=HISTORY_SIZE)
 
 try:
     with mp.tasks.vision.HandLandmarker.create_from_options(options) as landmarker:
@@ -84,6 +88,9 @@ try:
             displayed_label = "No hand"
             confidence = 0.0
 
+            if not result.hand_landmarks:
+                prediction_history.clear()
+                
             if result.hand_landmarks:
                 hand = result.hand_landmarks[0]
                 features = normalize_landmarks(hand)
@@ -106,8 +113,21 @@ try:
                     confidence = probabilities[best_index]
 
                     if confidence >= CONFIDENCE_THRESHOLD:
-                        displayed_label = prediction
+                        prediction_history.append(prediction)
+                        
+                        if len(prediction_history) >= MIN_VOTES:
+                            most_common, votes = Counter(
+                                prediction_history
+                            ).most_common(1)[0]
+                            
+                            if votes >= MIN_VOTES:
+                                displayed_label = most_common
+                            else:
+                                displayed_label = "Reading..."
+                        else:
+                            displayed_label = "Reading..."
                     else:
+                        prediction_history.clear()
                         displayed_label = "Unknown"
 
             cv2.putText(
