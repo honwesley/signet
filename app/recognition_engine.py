@@ -1,0 +1,288 @@
+from collections import Counter, deque
+from dataclasses import dataclass
+from pathlib import Path
+
+import cv2
+import joblib
+import mediapipe as mp
+import numpy as np
+import pandas as pd
+
+
+ROOT_DIRECTORY = Path(__file__).resolve().parents[1]
+
+HAND_MODEL_PATH = ROOT_DIRECTORY / "models/hand_landmarker.task"
+STATIC_MODEL_PATH = ROOT_DIRECTORY / "models/asl_classifier.joblib"
+MOTION_MODEL_PATH = ROOT_DIRECTORY / "models/motion_classifier.joblib"
+
+CONFIDENCE_THRESHOLD = 0.75
+MOTION_CONFIDENCE_THRESHOLD = 0.70
+HISTORY_SIZE = 12
+MIN_VOTES = 8
+SEQUENCE_LENGTH = 30
+
+
+@dataclass
+class RecognitionOutput:
+    frame: np.ndarray
+    label: str
+    confidence: float
+    added_text: str
+    status: str
+
+
+def normalize_landmarks(landmarks):
+    wrist = landmarks[0]
+
+    relative_points = [
+        (
+            point.x - wrist.x,
+            point.y - wrist.y,
+            point.z - wrist.z,
+        )
+        for point in landmarks
+    ]
+
+    scale = max(
+        (x**2 + y**2 + z**2) ** 0.5
+        for x, y, z in relative_points
+    )
+
+    if scale < 0.000001:
+        return None
+
+    features = []
+
+    for x, y, z in relative_points:
+        features.extend([x / scale, y / scale, z / scale])
+
+    return features
+
+
+def extract_motion_features(sequence):
+    landmarks = sequence.reshape(SEQUENCE_LENGTH, 21, 3)
+    fingertip_paths = landmarks[:, [8, 20], :]
+
+    velocity = np.diff(fingertip_paths, axis=0)
+    acceleration = np.diff(velocity, axis=0)
+
+    path_lengths = np.linalg.norm(velocity, axis=2).sum(axis=0)
+    displacement = fingertip_paths[-1] - fingertip_paths[0]
+    coordinate_range = (
+        fingertip_paths.max(axis=0) - fingertip_paths.min(axis=0)
+    )
+
+    return np.concatenate(
+        [
+            fingertip_paths.flatten(),
+            velocity.flatten(),
+            acceleration.flatten(),
+            path_lengths.flatten(),
+            displacement.flatten(),
+            coordinate_range.flatten(),
+        ]
+    )
+
+
+class RecognitionEngine:
+    def __init__(self):
+        self.static_model = joblib.load(STATIC_MODEL_PATH)
+        self.static_model.n_jobs = 1
+        self.motion_model = joblib.load(MOTION_MODEL_PATH)
+
+        self.motion_classes = self.motion_model.named_steps[
+            "classifier"
+        ].classes_
+
+        options = mp.tasks.vision.HandLandmarkerOptions(
+            base_options=mp.tasks.BaseOptions(
+                model_asset_path=str(HAND_MODEL_PATH)
+            ),
+            running_mode=mp.tasks.vision.RunningMode.VIDEO,
+            num_hands=1,
+            min_hand_detection_confidence=0.5,
+            min_hand_presence_confidence=0.5,
+            min_tracking_confidence=0.5,
+        )
+
+        self.landmarker = (
+            mp.tasks.vision.HandLandmarker.create_from_options(options)
+        )
+
+        self.frame_timestamp_ms = 0
+        self.prediction_history = deque(maxlen=HISTORY_SIZE)
+
+        self.last_added_letter = None
+        self.unknown_frames = 0
+        self.hand_present = False
+
+        self.motion_recording = False
+        self.motion_sequence = []
+        self.motion_cooldown = 0
+        self.motion_status = "Ready"
+
+    def reset_text_state(self):
+        self.prediction_history.clear()
+        self.last_added_letter = None
+        self.unknown_frames = 0
+
+    def start_motion(self):
+        if not self.hand_present:
+            self.motion_status = "Show your hand before recording"
+            return False
+
+        if self.motion_recording:
+            return False
+
+        self.motion_recording = True
+        self.motion_sequence = []
+        self.motion_status = "Recording J/Z motion"
+        self.prediction_history.clear()
+
+        return True
+
+    def process(self, frame):
+        frame = cv2.flip(frame, 1)
+
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        mp_image = mp.Image(
+            image_format=mp.ImageFormat.SRGB,
+            data=rgb_frame,
+        )
+
+        self.frame_timestamp_ms += 33
+
+        result = self.landmarker.detect_for_video(
+            mp_image,
+            self.frame_timestamp_ms,
+        )
+
+        displayed_label = "—"
+        confidence = 0.0
+        added_text = ""
+        hand = None
+
+        if result.hand_landmarks:
+            hand = result.hand_landmarks[0]
+            self.hand_present = True
+
+            for point in hand:
+                x = int(point.x * frame.shape[1])
+                y = int(point.y * frame.shape[0])
+                cv2.circle(frame, (x, y), 4, (53, 208, 127), -1)
+
+        else:
+            self.hand_present = False
+            self.prediction_history.clear()
+            self.last_added_letter = None
+            self.unknown_frames = 0
+
+            if self.motion_recording:
+                self.motion_recording = False
+                self.motion_sequence = []
+                self.motion_status = "Hand lost—try again"
+
+        if hand is not None:
+            features = normalize_landmarks(hand)
+
+            if features is not None:
+                if self.motion_recording:
+                    self.motion_sequence.append(features)
+
+                    displayed_label = (
+                        f"{len(self.motion_sequence)}/{SEQUENCE_LENGTH}"
+                    )
+
+                    if len(self.motion_sequence) == SEQUENCE_LENGTH:
+                        sequence = np.asarray(
+                            self.motion_sequence,
+                            dtype=np.float32,
+                        )
+
+                        motion_features = extract_motion_features(sequence)
+
+                        probabilities = self.motion_model.predict_proba(
+                            [motion_features]
+                        )[0]
+
+                        best_index = probabilities.argmax()
+                        motion_prediction = self.motion_classes[best_index]
+                        confidence = probabilities[best_index]
+
+                        if (
+                            motion_prediction in {"J", "Z"}
+                            and confidence
+                            >= MOTION_CONFIDENCE_THRESHOLD
+                        ):
+                            displayed_label = motion_prediction
+                            added_text = motion_prediction
+                            self.motion_status = (
+                                f"Added {motion_prediction}"
+                            )
+                        else:
+                            displayed_label = "OTHER"
+                            self.motion_status = "No J or Z detected"
+
+                        self.motion_recording = False
+                        self.motion_sequence = []
+                        self.motion_cooldown = 20
+                        self.prediction_history.clear()
+                        self.last_added_letter = None
+
+                elif self.motion_cooldown > 0:
+                    self.motion_cooldown -= 1
+                    displayed_label = "—"
+
+                else:
+                    sample = pd.DataFrame(
+                        [features],
+                        columns=self.static_model.feature_names_in_,
+                    )
+
+                    probabilities = self.static_model.predict_proba(
+                        sample
+                    )[0]
+
+                    best_index = probabilities.argmax()
+                    prediction = self.static_model.classes_[best_index]
+                    confidence = probabilities[best_index]
+
+                    if confidence >= CONFIDENCE_THRESHOLD:
+                        self.unknown_frames = 0
+                        self.prediction_history.append(prediction)
+
+                        if len(self.prediction_history) >= MIN_VOTES:
+                            most_common, votes = Counter(
+                                self.prediction_history
+                            ).most_common(1)[0]
+
+                            if votes >= MIN_VOTES:
+                                displayed_label = most_common
+
+                                if most_common != self.last_added_letter:
+                                    added_text = most_common
+                                    self.last_added_letter = most_common
+                            else:
+                                displayed_label = "…"
+                        else:
+                            displayed_label = "…"
+
+                    else:
+                        displayed_label = "?"
+                        self.unknown_frames += 1
+
+                        if self.unknown_frames >= 5:
+                            self.prediction_history.clear()
+                            self.last_added_letter = None
+
+        return RecognitionOutput(
+            frame=frame,
+            label=displayed_label,
+            confidence=confidence,
+            added_text=added_text,
+            status=self.motion_status,
+        )
+
+    def close(self):
+        self.landmarker.close()

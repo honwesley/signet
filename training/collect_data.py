@@ -59,7 +59,7 @@ if file_exists:
         reader = csv.DictReader(existing_file)
         
         existing_samples = sum(
-            row["label"] == label 
+            row["label"] == label
             for row in reader
         )
 if existing_samples >= TARGET_SAMPLES:
