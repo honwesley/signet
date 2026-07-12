@@ -17,9 +17,13 @@ MOTION_MODEL_PATH = ROOT_DIRECTORY / "models/motion_classifier.joblib"
 
 CONFIDENCE_THRESHOLD = 0.75
 MOTION_CONFIDENCE_THRESHOLD = 0.70
-HISTORY_SIZE = 12
-MIN_VOTES = 4
+AUTO_MOTION_CONFIDENCE = 0.78
+HISTORY_SIZE = 8
+MIN_VOTES = 5
 SEQUENCE_LENGTH = 30
+AUTO_SEQUENCE_LENGTH = 15
+AUTO_CHECK_INTERVAL = 3
+MIN_MOTION_DISTANCE = 0.18
 
 
 @dataclass
@@ -84,6 +88,27 @@ def extract_motion_features(sequence):
     )
 
 
+def resample_sequence(sequence):
+    sequence = np.asarray(sequence, dtype=np.float32)
+
+    old_times = np.linspace(0, 1, len(sequence))
+    new_times = np.linspace(0, 1, SEQUENCE_LENGTH)
+
+    resampled = np.empty(
+        (SEQUENCE_LENGTH, sequence.shape[1]),
+        dtype=np.float32,
+    )
+
+    for feature_index in range(sequence.shape[1]):
+        resampled[:, feature_index] = np.interp(
+            new_times,
+            old_times,
+            sequence[:, feature_index],
+        )
+
+    return resampled
+
+
 class RecognitionEngine:
     def __init__(self):
         self.static_model = joblib.load(STATIC_MODEL_PATH)
@@ -111,7 +136,6 @@ class RecognitionEngine:
 
         self.frame_timestamp_ms = 0
         self.prediction_history = deque(maxlen=HISTORY_SIZE)
-
         self.last_added_letter = None
         self.unknown_frames = 0
         self.hand_present = False
@@ -121,8 +145,12 @@ class RecognitionEngine:
         self.motion_cooldown = 0
         self.motion_status = "Ready"
 
+        self.auto_motion_buffer = deque(maxlen=AUTO_SEQUENCE_LENGTH)
+        self.auto_check_counter = 0
+
     def reset_text_state(self):
         self.prediction_history.clear()
+        self.auto_motion_buffer.clear()
         self.last_added_letter = None
         self.unknown_frames = 0
 
@@ -141,9 +169,20 @@ class RecognitionEngine:
 
         return True
 
+    def _classify_motion(self, sequence):
+        motion_features = extract_motion_features(sequence)
+        probabilities = self.motion_model.predict_proba(
+            [motion_features]
+        )[0]
+
+        best_index = probabilities.argmax()
+        prediction = self.motion_classes[best_index]
+        confidence = probabilities[best_index]
+
+        return prediction, confidence
+
     def process(self, frame):
         frame = cv2.flip(frame, 1)
-
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
         mp_image = mp.Image(
@@ -152,13 +191,12 @@ class RecognitionEngine:
         )
 
         self.frame_timestamp_ms += 33
-
         result = self.landmarker.detect_for_video(
             mp_image,
             self.frame_timestamp_ms,
         )
 
-        displayed_label = "—"
+        displayed_label = "â€”"
         confidence = 0.0
         added_text = ""
         hand = None
@@ -171,25 +209,91 @@ class RecognitionEngine:
                 x = int(point.x * frame.shape[1])
                 y = int(point.y * frame.shape[0])
                 cv2.circle(frame, (x, y), 4, (53, 208, 127), -1)
-
         else:
             self.hand_present = False
             self.prediction_history.clear()
+            self.auto_motion_buffer.clear()
             self.last_added_letter = None
             self.unknown_frames = 0
 
             if self.motion_recording:
                 self.motion_recording = False
                 self.motion_sequence = []
-                self.motion_status = "Hand lost—try again"
+                self.motion_status = "Hand lostâ€”try again"
 
         if hand is not None:
             features = normalize_landmarks(hand)
 
             if features is not None:
+                auto_motion_detected = False
+
+                if (
+                    not self.motion_recording
+                    and self.motion_cooldown == 0
+                ):
+                    self.auto_motion_buffer.append(features)
+                    self.auto_check_counter += 1
+
+                    should_check_motion = (
+                        len(self.auto_motion_buffer)
+                        == AUTO_SEQUENCE_LENGTH
+                        and self.auto_check_counter
+                        % AUTO_CHECK_INTERVAL
+                        == 0
+                    )
+
+                    if should_check_motion:
+                        short_sequence = np.asarray(
+                            self.auto_motion_buffer,
+                            dtype=np.float32,
+                        )
+
+                        short_landmarks = short_sequence.reshape(
+                            AUTO_SEQUENCE_LENGTH,
+                            21,
+                            3,
+                        )
+
+                        fingertip_paths = short_landmarks[:, [8, 20], :]
+                        fingertip_velocity = np.diff(
+                            fingertip_paths,
+                            axis=0,
+                        )
+
+                        motion_distance = np.linalg.norm(
+                            fingertip_velocity,
+                            axis=2,
+                        ).sum(axis=0).max()
+
+                        if motion_distance >= MIN_MOTION_DISTANCE:
+                            full_sequence = resample_sequence(
+                                short_sequence
+                            )
+                            motion_prediction, motion_confidence = (
+                                self._classify_motion(full_sequence)
+                            )
+
+                            if (
+                                motion_prediction in {"J", "Z"}
+                                and motion_confidence
+                                >= AUTO_MOTION_CONFIDENCE
+                            ):
+                                displayed_label = motion_prediction
+                                confidence = motion_confidence
+                                added_text = motion_prediction
+                                auto_motion_detected = True
+
+                                self.motion_status = (
+                                    f"Automatically added "
+                                    f"{motion_prediction}"
+                                )
+                                self.motion_cooldown = 20
+                                self.auto_motion_buffer.clear()
+                                self.prediction_history.clear()
+                                self.last_added_letter = None
+
                 if self.motion_recording:
                     self.motion_sequence.append(features)
-
                     displayed_label = (
                         f"{len(self.motion_sequence)}/{SEQUENCE_LENGTH}"
                     )
@@ -199,16 +303,9 @@ class RecognitionEngine:
                             self.motion_sequence,
                             dtype=np.float32,
                         )
-
-                        motion_features = extract_motion_features(sequence)
-
-                        probabilities = self.motion_model.predict_proba(
-                            [motion_features]
-                        )[0]
-
-                        best_index = probabilities.argmax()
-                        motion_prediction = self.motion_classes[best_index]
-                        confidence = probabilities[best_index]
+                        motion_prediction, confidence = (
+                            self._classify_motion(sequence)
+                        )
 
                         if (
                             motion_prediction in {"J", "Z"}
@@ -227,12 +324,18 @@ class RecognitionEngine:
                         self.motion_recording = False
                         self.motion_sequence = []
                         self.motion_cooldown = 20
+                        self.auto_motion_buffer.clear()
                         self.prediction_history.clear()
                         self.last_added_letter = None
 
+                elif auto_motion_detected:
+                    pass
+
                 elif self.motion_cooldown > 0:
                     self.motion_cooldown -= 1
-                    displayed_label = "—"
+
+                    if self.motion_cooldown == 0:
+                        self.motion_status = "Ready"
 
                 else:
                     sample = pd.DataFrame(
@@ -264,10 +367,9 @@ class RecognitionEngine:
                                     added_text = most_common
                                     self.last_added_letter = most_common
                             else:
-                                displayed_label = "…"
+                                displayed_label = "â€¦"
                         else:
-                            displayed_label = "…"
-
+                            displayed_label = "â€¦"
                     else:
                         displayed_label = "?"
                         self.unknown_frames += 1
