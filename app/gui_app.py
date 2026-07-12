@@ -331,9 +331,12 @@ class SignetGUI(ctk.CTk):
         if self.camera_running:
             return
 
-        self.camera = cv2.VideoCapture(0)
+        self.camera = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        self.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"),)
+        
         self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        self.camera.set(cv2.CAP_PROP_FPS, 30)
         self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         if not self.camera.isOpened():
@@ -363,7 +366,7 @@ class SignetGUI(ctk.CTk):
         self.frame_counter += 1
         
         should_recognize = (
-            self.frame_counter % 2 == 0 
+            self.frame_counter % 3 == 0 
             or self.engine.motion_recording
         )
         
