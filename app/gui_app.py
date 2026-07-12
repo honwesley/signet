@@ -385,7 +385,14 @@ class SignetGUI(ctk.CTk):
             )
             
             if output.added_text:
-                self.text_box.insert("end", output.added_text)
+                current_text = self.text_box.get("1.0", "end-1c")
+                
+                if output.added_text == " ":
+                    if current_text and not current_text.endswith(" "):
+                        self.text_box.insert("end", " ")
+                else:
+                    self.text_box.insert("end", output.added_text)
+                
                 self.text_box.see("end")
             
             status_color = (

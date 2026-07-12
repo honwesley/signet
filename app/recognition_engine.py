@@ -24,6 +24,7 @@ SEQUENCE_LENGTH = 30
 AUTO_SEQUENCE_LENGTH = 15
 AUTO_CHECK_INTERVAL = 3
 MIN_MOTION_DISTANCE = 0.18
+NO_HAND_SPACE_FRAMES = 10
 
 
 @dataclass
@@ -147,6 +148,9 @@ class RecognitionEngine:
 
         self.auto_motion_buffer = deque(maxlen=AUTO_SEQUENCE_LENGTH)
         self.auto_check_counter = 0
+        
+        self.no_hand_frames = 0
+        self.space_added_for_absence = False
 
     def reset_text_state(self):
         self.prediction_history.clear()
@@ -204,6 +208,9 @@ class RecognitionEngine:
         if result.hand_landmarks:
             hand = result.hand_landmarks[0]
             self.hand_present = True
+            
+            self.no_hand_frames = 0
+            self.space_added_for_absence = False
 
             for point in hand:
                 x = int(point.x * frame.shape[1])
@@ -215,6 +222,15 @@ class RecognitionEngine:
             self.auto_motion_buffer.clear()
             self.last_added_letter = None
             self.unknown_frames = 0
+
+            self.no_hand_frames += 1
+            if(
+                self.no_hand_frames >= NO_HAND_SPACE_FRAMES
+                and not self.space_added_for_absence
+            ):
+                added_text = " "
+                self.space_added_for_absence = True 
+                self.motion_status = "added word space"
 
             if self.motion_recording:
                 self.motion_recording = False
