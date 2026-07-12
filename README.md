@@ -84,6 +84,7 @@ Key -> Action:
 'Q' -> Quit
 
 Static letters are recognized automatically. For J or Z, press 'M' and immediately perform the complete motion.
+J and Z are detected automatically from their motion now. The manual J/Z button remains available as a fallback.
 
 ### Project Structure
 signet/
@@ -130,7 +131,6 @@ The current model recognizes individual letters, not complete ASL signs or sente
 
 ## Future Improvements
 Train with multiple signers
-Add automatic J and Z detection
 Add an unknown-handshape class
 Improve support for left-handed signers
 Add text-to-speech
