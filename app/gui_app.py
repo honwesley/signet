@@ -5,6 +5,9 @@ import cv2
 import customtkinter as ctk
 from PIL import Image
 
+import threading
+import pyttsx3 
+
 
 APP_TITLE = "SIGNET"
 WINDOW_SIZE = "1200x760"
@@ -34,6 +37,7 @@ class SignetGUI(ctk.CTk):
         self.camera = None
         self.camera_running = False
         self.frame_counter = 0
+        self.speech_running = False
         self.engine = RecognitionEngine() 
 
         self.grid_columnconfigure(0, weight=3)
@@ -293,6 +297,7 @@ class SignetGUI(ctk.CTk):
             ("Backspace", self.backspace),
             ("Clear", self.clear_text),
             ("Copy", self.copy_text),
+            ("Speak", self.speak_text),
         ]
 
         for index, (text, command) in enumerate(buttons):
@@ -389,10 +394,11 @@ class SignetGUI(ctk.CTk):
                 else MUTED 
             )
             
-            self.status_label.configure(
-                text=output.status, 
-                text_color = status_color,
-            )
+            if not self.speech_running:    
+                self.status_label.configure(
+                    text=output.status, 
+                    text_color = status_color,
+                )
         else:
             display_frame = cv2.flip(frame, 1)
             
@@ -470,6 +476,55 @@ class SignetGUI(ctk.CTk):
             text_color = GREEN if started else "#FFB454",
         )
 
+    def speak_text(self):
+        text = self.text_box.get("1.0", "end-1c").strip()
+        
+        if not text:
+            self.status_label.configure(
+                text = "There is no text to speak.",
+                text_color = "#FFB454",
+            )
+            return
+        
+        if self.speech_running:
+            return
+        
+        self.speech_running = True
+        
+        self.status_label.configure(
+            text = "Speaking...",
+            text_color = GREEN, 
+        )
+        
+        thread = threading.Thread(
+            target=self.speech_worker, 
+            args = (text,), 
+            daemon = True, 
+        )
+        
+        thread.start()
+        
+    def speech_worker(self, text):
+        try:
+            speech_engine = pyttsx3.init()
+            speech_engine.setProperty("rate", 170)
+            speech_engine.setProperty("volume", 1.0)
+            
+            speech_engine.say(text)
+            speech_engine.runAndWait()
+            speech_engine.stop()
+        finally:
+            self.after(0, self.speech_finished)
+    
+    def speech_finished(self):
+        self.speech_running = False 
+        
+        self.status_label.configure(
+            text = "Finished speaking", 
+            text_color = MUTED,
+        )
+        
+        
     def close_app(self):
         self.stop_camera()
         self.engine.close()
