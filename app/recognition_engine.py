@@ -7,9 +7,19 @@ import joblib
 import mediapipe as mp
 import numpy as np
 import pandas as pd
+import sys
 
+import sklearn
+from sklearn.decomposition import PCA
+from sklearn.ensemble import RandomForestClassifier 
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler 
+from sklearn.svm import SVC 
 
-ROOT_DIRECTORY = Path(__file__).resolve().parents[1]
+if getattr(sys, "frozen", False):
+    ROOT_DIRECTORY = Path(sys._MEIPASS)
+else:
+    ROOT_DIRECTORY = Path(__file__).resolve().parents[1]
 
 HAND_MODEL_PATH = ROOT_DIRECTORY / "models/hand_landmarker.task"
 STATIC_MODEL_PATH = ROOT_DIRECTORY / "models/asl_classifier.joblib"

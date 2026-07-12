@@ -4,3 +4,7 @@ __pycache__/
 data/
 models/
 .vscode/
+build/
+dist/
+*.spec
+*.zip
