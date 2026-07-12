@@ -72,7 +72,8 @@ Model saved as: models/motion_classifier.joblib
 
 ## Run complete application
 in powershell: 
-python app/full_asl_app.py
+python app/full_asl_app.py (v 1.1)
+python app/gui_app.py (v 1.2)
 
 ### Controls
 Key -> Action: 
@@ -91,6 +92,8 @@ signet/
         fingerspell_app.py
         live_predict.py
         live_motion_test.py
+        gui_app.py
+        recognition_engine.py
     training/
         collect_data.py
         collect_motion_data.py
