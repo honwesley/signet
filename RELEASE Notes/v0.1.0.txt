@@ -1,0 +1,60 @@
+SIGNET v0.1.0
+Release Date: July 11, 2026 (07/11/2026)
+
+## OVERVIEW
+
+SIGNET v0.1.0 is the first working release of a real-time American Sign Language fingerspelling recognition application. It uses webcam-based hand tracking and machine-learning models to convert ASL letters into editable text.
+
+## NEW FEATURES
+
+- Real-time webcam hand tracking using MediaPipe
+- Recognition of all 24 static ASL fingerspelling letters
+- Automatic motion recognition for J and Z
+- Automatic spaces when the user's hand leaves the camera
+- Prediction smoothing and confidence display
+- Editable recognized-text output
+- Offline text-to-speech
+- Copy, clear, backspace, and manual-space controls
+- Modern desktop interface
+- Start and stop camera controls
+- Packaged Windows application that runs without VS Code
+
+## TECHNOLOGY
+
+- Python 3.12
+- OpenCV
+- MediaPipe
+- scikit-learn
+- CustomTkinter
+- pyttsx3
+- PyInstaller
+
+## INSTALLATION
+
+1. Download and extract the complete SIGNET-Windows ZIP file.
+2. Keep SIGNET.exe and the _internal folder together.
+3. Open SIGNET.exe.
+4. Allow camera access if prompted.
+
+## CURRENT LIMITATIONS
+
+- The models were primarily trained using one signer.
+- Accuracy may vary across different users, lighting conditions, camera angles, and hand orientations.
+- SIGNET currently recognizes fingerspelling, not full ASL vocabulary, grammar, facial expressions, or sentence translation.
+- J and Z recognition may occasionally produce false predictions.
+- The Windows application is unsigned, so Windows may display an unknown-publisher warning.
+- The application currently supports one visible hand at a time.
+
+## PLANNED IMPROVEMENTS
+
+- Train and evaluate with multiple signers
+- Improve left-handed recognition
+- Add adjustable recognition settings
+- Improve automatic motion detection
+- Add signer-independent accuracy testing
+- Improve application packaging and installation
+- Expand beyond fingerspelling to isolated ASL signs
+
+## STATUS
+
+This is an early prototype release intended for testing and demonstration.
