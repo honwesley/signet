@@ -117,7 +117,7 @@ signet/
     requirements.txt  
 
 app/ contains the applications and live recoginition programs.   
-training/ contrains data collectino, verification, and model-training scripts  
+training/ contrains data collection, verification, and model-training scripts  
 tools/ contains webcam and hand tracking diagnostics  
 data/ contains locally collected training samples  
 models/ contains downlaoded and trained model files  
