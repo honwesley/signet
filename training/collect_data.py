@@ -46,7 +46,7 @@ if len(sys.argv) != 2:
 
 label = sys.argv[1].upper()
 
-STATIC_LETTERS = set("ABCDEFGHIKLMNOPQRSTUVWXY")
+STATIC_LETTERS = set("ABCDEFGHIKLMNOPQRSTUVWXY") | {"?"}
 if label not in STATIC_LETTERS:
     raise SystemExit("Choose a static ASL letter. Cannot be J and Z because they require motion.")
 

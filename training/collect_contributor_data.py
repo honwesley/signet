@@ -9,7 +9,7 @@ import mediapipe as mp
 
 MODEL_PATH = Path("models/hand_landmarker.task")
 DATA_FILE = Path("data/landmarks.csv")
-STATIC_LETTERS = set("ABCDEFGHIKLMNOPQRSTUVWXY")
+STATIC_LETTERS = set("ABCDEFGHIKLMNOPQRSTUVWXY") | {"?"}
 
 
 def normalize_landmarks(landmarks):
