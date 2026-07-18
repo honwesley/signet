@@ -1,0 +1,4 @@
+SIGNET v0.1.2
+Release Date: July 18, 2026
+
+Added Joyce's dataset for 26 letters + OTHER.
