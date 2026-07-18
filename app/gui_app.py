@@ -390,6 +390,12 @@ class SignetGUI(ctk.CTk):
                 if output.added_text == " ":
                     if current_text and not current_text.endswith(" "):
                         self.text_box.insert("end", " ")
+                elif (
+                    output.added_text == "J"
+                    and current_text.endswith("I")
+                ): 
+                    self.text_box.delete("end-2c", "end-1c")
+                    self.text_box.insert("end", "J")
                 else:
                     self.text_box.insert("end", output.added_text)
                 
